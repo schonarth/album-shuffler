@@ -1,7 +1,7 @@
 """
 Album Shuffler — YouTube Music Backend
 Run: python server.py
-Auth setup (one-time): ytmusicapi oauth  →  saves oauth.json
+Auth setup (one-time): bash setup.sh  →  saves browser.json
 """
 
 import json
@@ -11,16 +11,14 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from ytmusicapi import YTMusic
 
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__, static_folder=".")
 CORS(app)
 
-AUTH_FILE = os.path.join(os.path.dirname(__file__), "oauth.json")
+AUTH_FILE = os.path.join(os.path.dirname(__file__), "browser.json")
 
 def get_ytm():
     if not os.path.exists(AUTH_FILE):
-        raise FileNotFoundError(
-            "oauth.json not found. Run: ytmusicapi oauth"
-        )
+        raise FileNotFoundError("browser.json not found. Run: bash setup.sh")
     return YTMusic(AUTH_FILE)
 
 
@@ -32,7 +30,7 @@ def status():
         get_ytm()
         return jsonify({"ok": True, "auth": True})
     except FileNotFoundError:
-        return jsonify({"ok": True, "auth": False, "message": "Run: ytmusicapi oauth"}), 200
+        return jsonify({"ok": True, "auth": False, "message": "Run: bash setup.sh"}), 200
     except Exception as e:
         return jsonify({"ok": False, "auth": False, "message": str(e)}), 500
 
@@ -50,16 +48,23 @@ def get_artists():
         # Fetch library albums (up to 500)
         library_albums = ytm.get_library_albums(limit=500)
 
-        artists = {}
+        # Deduplicate by name (case-insensitive): same artist may have different
+        # IDs across albums. Keep the first non-None ID seen as the canonical ID.
+        artists = {}  # name_lower -> {"id": primary_id, "name": display_name}
         for album in library_albums:
             for artist in album.get("artists", []):
                 aid = artist.get("id")
                 aname = artist.get("name", "").strip()
-                if aid and aname and aid not in artists:
-                    artists[aid] = aname
+                if not aname:
+                    continue
+                key = aname.lower()
+                if key not in artists:
+                    artists[key] = {"id": aid, "name": aname}
+                elif artists[key]["id"] is None and aid:
+                    artists[key]["id"] = aid
 
         result = sorted(
-            [{"id": k, "name": v} for k, v in artists.items()],
+            [v for v in artists.values() if v["id"]],
             key=lambda x: x["name"].lower()
         )
         return jsonify(result)
@@ -82,13 +87,26 @@ def get_albums():
 
         library_albums = ytm.get_library_albums(limit=500)
 
+        # Build set of artist names corresponding to selected IDs, to handle
+        # cases where the same artist has different IDs across albums.
+        selected_names = set()
+        if artist_ids:
+            for album in library_albums:
+                for artist in album.get("artists", []):
+                    if artist.get("id") in artist_ids and artist.get("name"):
+                        selected_names.add(artist["name"].strip().lower())
+
         results = []
         for album in library_albums:
             album_artists = album.get("artists", [])
             album_artist_ids = {a.get("id") for a in album_artists}
+            album_artist_names = {a.get("name", "").strip().lower() for a in album_artists}
 
-            # If filtering, skip albums that don't match any selected artist
-            if artist_ids and not artist_ids.intersection(album_artist_ids):
+            # If filtering, match by ID or by name (same artist may have different IDs)
+            if artist_ids and not (
+                artist_ids.intersection(album_artist_ids) or
+                selected_names.intersection(album_artist_names)
+            ):
                 continue
 
             # Thumbnail: pick the largest available
@@ -214,12 +232,12 @@ def create_playlist():
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(".", "index.html")
 
 
 if __name__ == "__main__":
     print("\n🎵 Album Shuffler starting on http://localhost:5000\n")
     if not os.path.exists(AUTH_FILE):
-        print("⚠️  No oauth.json found.")
-        print("   Run this first:  ytmusicapi oauth\n")
+        print("⚠️  No browser.json found.")
+        print("   Run this first:  bash setup.sh\n")
     app.run(debug=True, port=5000)

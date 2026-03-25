@@ -41,9 +41,13 @@ open http://localhost:5000
 
 ## Authentication
 
-Authentication uses OAuth and is stored in `oauth.json` in the project folder. This file contains your Google credentials — **do not share it**. It is listed in `.gitignore` by default.
+Authentication works by copying your browser session from YouTube Music — no Google Cloud project or API keys required. `setup.sh` walks you through it step by step.
 
-To re-authenticate: delete `oauth.json` and run `ytmusicapi oauth`.
+Credentials are stored in `browser.json` in the project folder. **Do not share this file.** It is listed in `.gitignore`.
+
+Sessions eventually expire (when your browser session does). Re-run `bash setup.sh` to refresh — it overwrites the existing credentials automatically.
+
+> **Future improvement**: session refresh could be automated (detected on API error, re-prompted without manual intervention).
 
 ## Notes
 
