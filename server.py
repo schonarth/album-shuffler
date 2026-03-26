@@ -6,12 +6,13 @@ Auth setup (one-time): bash setup.sh  →  saves browser.json
 
 import json
 import random
+import re
 import os
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from ytmusicapi import YTMusic
 
-app = Flask(__name__, static_folder=".")
+app = Flask(__name__, static_folder="dist", static_url_path="")
 CORS(app)
 
 AUTH_FILE = os.path.join(os.path.dirname(__file__), "browser.json")
@@ -74,59 +75,97 @@ def get_artists():
 
 # ─── Library: albums (optionally filtered by artist ids) ─────────────────────
 
+def _normalize_thumb(thumbnails):
+    if not thumbnails:
+        return ""
+    url = thumbnails[-1]["url"]
+    return re.sub(r'=w\d+-h\d+.*$', '=w226-h226-l90-rj', url)
+
+
+def _sort_key(album):
+    return (
+        album["artists"][0].lower() if album["artists"] else "",
+        album["year"] or "0",
+        album["title"].lower(),
+    )
+
+
 @app.route("/api/albums")
 def get_albums():
     """
-    Returns library albums, optionally filtered by comma-separated artist IDs.
-    Query param: ?artists=id1,id2,...
+    Returns albums, optionally filtered by comma-separated artist IDs.
+    Query params:
+      ?artists=id1,id2,...
+      ?mode=library (default) | all
+    mode=all fetches full discography for each selected artist via the artist page.
+    mode=library (or no artist filter) returns saved library albums only.
     """
     try:
         ytm = get_ytm()
         artist_filter = request.args.get("artists", "")
-        artist_ids = set(artist_filter.split(",")) if artist_filter else set()
+        mode = request.args.get("mode", "library")
+        artist_ids = [a for a in artist_filter.split(",") if a] if artist_filter else []
 
+        if mode == "all" and artist_ids:
+            results = []
+            seen = set()
+            for artist_id in artist_ids:
+                try:
+                    artist_data = ytm.get_artist(artist_id)
+                    artist_name = artist_data.get("name", "")
+                    albums_section = artist_data.get("albums", {})
+                    browse_id = albums_section.get("browseId")
+                    params = albums_section.get("params")
+                    if browse_id and params:
+                        discography = ytm.get_artist_albums(browse_id, params)
+                    else:
+                        discography = albums_section.get("results", [])
+                    for album in discography:
+                        aid = album.get("browseId", "")
+                        if not aid or aid in seen:
+                            continue
+                        seen.add(aid)
+                        results.append({
+                            "id":        aid,
+                            "title":     album.get("title", "Unknown Album"),
+                            "artists":   [artist_name],
+                            "year":      album.get("year", ""),
+                            "thumbnail": _normalize_thumb(album.get("thumbnails", [])),
+                        })
+                except Exception:
+                    pass
+            results.sort(key=_sort_key)
+            return jsonify(results)
+
+        # --- library mode (default) ---
         library_albums = ytm.get_library_albums(limit=500)
+        artist_id_set = set(artist_ids)
 
-        # Build set of artist names corresponding to selected IDs, to handle
-        # cases where the same artist has different IDs across albums.
+        # Build name set to handle same artist with different IDs across albums
         selected_names = set()
-        if artist_ids:
+        if artist_id_set:
             for album in library_albums:
                 for artist in album.get("artists", []):
-                    if artist.get("id") in artist_ids and artist.get("name"):
+                    if artist.get("id") in artist_id_set and artist.get("name"):
                         selected_names.add(artist["name"].strip().lower())
 
         results = []
         for album in library_albums:
             album_artists = album.get("artists", [])
-            album_artist_ids = {a.get("id") for a in album_artists}
-            album_artist_names = {a.get("name", "").strip().lower() for a in album_artists}
-
-            # If filtering, match by ID or by name (same artist may have different IDs)
-            if artist_ids and not (
-                artist_ids.intersection(album_artist_ids) or
-                selected_names.intersection(album_artist_names)
-            ):
-                continue
-
-            # Thumbnail: pick the largest available
-            thumbnails = album.get("thumbnails", [])
-            thumb = thumbnails[-1]["url"] if thumbnails else ""
-
+            if artist_id_set:
+                ids = {a.get("id") for a in album_artists}
+                names = {a.get("name", "").strip().lower() for a in album_artists}
+                if not (artist_id_set.intersection(ids) or selected_names.intersection(names)):
+                    continue
             results.append({
                 "id":        album.get("browseId", album.get("playlistId", "")),
                 "title":     album.get("title", "Unknown Album"),
                 "artists":   [a.get("name", "") for a in album_artists],
                 "year":      album.get("year", ""),
-                "thumbnail": thumb,
+                "thumbnail": _normalize_thumb(album.get("thumbnails", [])),
             })
 
-        # Sort by artist then year then title
-        results.sort(key=lambda x: (
-            x["artists"][0].lower() if x["artists"] else "",
-            x["year"] or "0",
-            x["title"].lower()
-        ))
+        results.sort(key=_sort_key)
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -232,12 +271,12 @@ def create_playlist():
 
 @app.route("/")
 def index():
-    return send_from_directory(".", "index.html")
+    return send_from_directory("dist", "index.html")
 
 
 if __name__ == "__main__":
-    print("\n🎵 Album Shuffler starting on http://localhost:5000\n")
+    print("\n🎵 Album Shuffler starting on http://localhost:5001\n")
     if not os.path.exists(AUTH_FILE):
         print("⚠️  No browser.json found.")
         print("   Run this first:  bash setup.sh\n")
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

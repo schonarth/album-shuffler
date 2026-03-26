@@ -12,10 +12,10 @@ cd album-shuffler
 bash setup.sh
 
 # 3. Start the server
-python3 server.py
+npm run dev
 
 # 4. Open your browser
-open http://localhost:5000
+open http://localhost:5173
 ```
 
 ## How to use
