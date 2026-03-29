@@ -1,9 +1,9 @@
 <template>
   <div class="album-card" :class="{ selected }" @click="emit('toggle', album.id)">
     <img
-      v-if="album.thumbnail && !imgFailed"
+      v-if="currentThumb"
       class="album-thumb"
-      :src="album.thumbnail"
+      :src="currentThumb"
       :alt="album.title"
       loading="lazy"
       @error="onImgError"
@@ -23,7 +23,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 const props = defineProps({
   album: { type: Object, required: true },
@@ -31,10 +31,11 @@ const props = defineProps({
 })
 const emit = defineEmits(['toggle'])
 
-const imgFailed = ref(false)
+const thumbIndex = ref(0)
+const thumbs = computed(() => props.album.thumbnails ?? [])
+const currentThumb = computed(() => thumbs.value[thumbIndex.value] ?? null)
 
 function onImgError() {
-  console.warn('[cover] failed:', props.album.title, props.album.thumbnail)
-  imgFailed.value = true
+  thumbIndex.value++
 }
 </script>

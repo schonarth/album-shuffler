@@ -75,11 +75,11 @@ def get_artists():
 
 # ─── Library: albums (optionally filtered by artist ids) ─────────────────────
 
-def _normalize_thumb(thumbnails):
+def _thumb_urls(thumbnails):
     if not thumbnails:
-        return ""
-    url = thumbnails[-1]["url"]
-    return re.sub(r'=w\d+-h\d+.*$', '=w226-h226-l90-rj', url)
+        return []
+    sorted_thumbs = sorted(thumbnails, key=lambda t: t.get("width", 0))
+    return [t["url"] for t in sorted_thumbs]
 
 
 def _sort_key(album):
@@ -130,7 +130,7 @@ def get_albums():
                             "title":     album.get("title", "Unknown Album"),
                             "artists":   [artist_name],
                             "year":      album.get("year", ""),
-                            "thumbnail": _normalize_thumb(album.get("thumbnails", [])),
+                            "thumbnails": _thumb_urls(album.get("thumbnails", [])),
                         })
                 except Exception:
                     pass
@@ -162,7 +162,7 @@ def get_albums():
                 "title":     album.get("title", "Unknown Album"),
                 "artists":   [a.get("name", "") for a in album_artists],
                 "year":      album.get("year", ""),
-                "thumbnail": _normalize_thumb(album.get("thumbnails", [])),
+                "thumbnails": _thumb_urls(album.get("thumbnails", [])),
             })
 
         results.sort(key=_sort_key)
